@@ -6,11 +6,10 @@ class parameters():
 
 	def __init__(self):
 		self.NUM_EPOCHS = 100
-		self.NUM_STEPS = 200 # of tokens per feed for each minibatch row
-		self.NUM_BATCHES = 32
-		self.STATE_SIZE = 100 # num hidden units per state
-		self.NUM_LAYERS = 3 # num states per input
-		self.LEARNING_RATE = 1e-4
+		self.NUM_STEPS = 10 # of tokens per feed for each minibatch row
+		self.NUM_BATCHES = 200
+		self.STATE_SIZE = 16 # num hidden units per state
+		self.LEARNING_RATE = 0.1
 		self.FILE = "data/shakespeare.txt"
 		self.ENCODING = 'utf-8'
 
@@ -50,34 +49,23 @@ def generate_epochs(config):
 	for i in range(config.NUM_EPOCHS):
 		yield generate_batch(config, generate_data(config))
 
-def rnn_cell(config, rnn_input, state):
-	with tf.variable_scope('rnn_cell', reuse=True):
-		W_input = tf.get_variable('W_input', [config.NUM_CLASSES, config.STATE_SIZE])
-		W_hidden = tf.get_variable('W_hidden', [config.STATE_SIZE, config.STATE_SIZE])
-		b_hidden = tf.get_variable('b_hidden', [config.STATE_SIZE], initializer=tf.constant_initializer(0.0))
-	return tf.tanh(tf.matmul(rnn_input, W_input) + tf.matmul(state, W_hidden) + b_hidden)
-
 def rnn_logits(config, rnn_output):
 	with tf.variable_scope('softmax', reuse=True):
 		W_softmax = tf.get_variable('W_softmax', [config.STATE_SIZE, config.NUM_CLASSES])
 		b_softmax = tf.get_variable('b_softmax', [config.NUM_CLASSES], initializer=tf.constant_initializer(0.0))
 	return tf.matmul(rnn_output, W_softmax) + b_softmax
 
-def reset_graph():
-	if 'sess' in globals() and sess:
-		sess.close()
-	tf.reset_default_graph()
-
 def model(config):
 
 	# Placeholders
-	X = tf.placeholder(tf.int32, [config.NUM_BATCHES, None], name='input_placeholder')
-	y = tf.placeholder(tf.int32, [config.NUM_BATCHES, None], name='labels_placeholder')
+	X = tf.placeholder(tf.int32, [config.NUM_BATCHES, config.NUM_STEPS], name='input_placeholder')
+	y = tf.placeholder(tf.int32, [config.NUM_BATCHES, config.NUM_STEPS], name='labels_placeholder')
 	initial_state = tf.zeros([config.NUM_BATCHES, config.STATE_SIZE])
 
 	# Prepre the inputs
 	X_one_hot = tf.one_hot(X, config.NUM_CLASSES)
 	rnn_inputs = [tf.squeeze(i, squeeze_dims=[1]) for i in tf.split(1, config.NUM_STEPS, X_one_hot)]
+	# ^ or tf.unpack(X_one_hot, axis=1)
 
 	# Define the RNN cell
 	with tf.variable_scope('rnn_cell'):
@@ -86,12 +74,8 @@ def model(config):
 		b_hidden = tf.get_variable('b_hidden', [config.STATE_SIZE], initializer=tf.constant_initializer(0.0))
 
 	# Creating the RNN
-	state = initial_state
-	rnn_outputs = []
-	for rnn_input in rnn_inputs:
-		state = rnn_cell(config, rnn_input, state)
-		rnn_outputs.append(state)
-	final_state = rnn_outputs[-1]
+	cell = tf.nn.rnn_cell.BasicRNNCell(config.STATE_SIZE)
+	rnn_outputs, final_state = tf.nn.rnn(cell, rnn_inputs, initial_state=initial_state)
 
 	# Logits and predictions
 	with tf.variable_scope('softmax'):
@@ -186,13 +170,6 @@ def train_network(config, g):
 				if step%100 == 0 and step>0:
 					print("Average loss:", total_loss/100) 
 					training_losses.append(total_loss)
-
-			# Generate predictions
-			if idx%100 == 0:
-				print "Prediction:"
-				p = sample(config)
-				print config.START_TOKEN + "".join([config.idx_to_char[prediction] for prediction in p['predictions']])
-				print
 
 
 	return training_losses
