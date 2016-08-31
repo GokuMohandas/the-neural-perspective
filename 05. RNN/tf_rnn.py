@@ -1,196 +1,119 @@
+"""
+Imports
+"""
 import numpy as np
 import tensorflow as tf
-import random
+import time
+import os
+from urllib2 import urlopen
+from tensorflow.models.rnn.ptb import reader
 
-class parameters():
+"""
+Load and process data, utility functions
+"""
 
-	def __init__(self):
-		self.NUM_EPOCHS = 100
-		self.NUM_STEPS = 10 # of tokens per feed for each minibatch row
-		self.NUM_BATCHES = 200
-		self.STATE_SIZE = 16 # num hidden units per state
-		self.LEARNING_RATE = 0.1
-		self.FILE = "data/shakespeare.txt"
-		self.ENCODING = 'utf-8'
+file_url = 'https://raw.githubusercontent.com/jcjohnson/torch-rnn/master/data/tiny-shakespeare.txt'
+file_name = 'tinyshakespeare.txt'
+f = urlopen(file_url)
+raw_data = f.read()
+print("Data length:", len(raw_data))
 
-		self.START_TOKEN = 'Thou'
-		self.PREDICTION_LENGTH = 50
-		self.TEMPERATURE = 0.04
+vocab = set(raw_data)
+vocab_size = len(vocab)
+print ("Unique tokens:", vocab_size)
+idx_to_vocab = dict(enumerate(vocab))
+vocab_to_idx = dict(zip(idx_to_vocab.values(), idx_to_vocab.keys()))
 
-def generate_data(config):
+data = [vocab_to_idx[c] for c in raw_data]
+del raw_data
 
-	X = [config.char_to_idx[char] for char in config.data]
-	y = X[1:]
-	y[-1] = X[0]
+def gen_epochs(n, num_steps, batch_size):
+    for i in range(n):
+        yield reader.ptb_iterator(data, batch_size, num_steps)
 
-	return X, y
+def reset_graph():
+    if 'sess' in globals() and sess:
+        sess.close()
+    tf.reset_default_graph()
 
-def generate_batch(config, raw_data):
-	raw_X, raw_y = raw_data
-	data_length = len(raw_X)
+def train_network(g, num_epochs, num_steps = 200, batch_size = 32, verbose = True, save=False):
+    tf.set_random_seed(2345)
+    with tf.Session() as sess:
+        sess.run(tf.initialize_all_variables())
+        training_losses = []
+        for idx, epoch in enumerate(gen_epochs(num_epochs, num_steps, batch_size)):
+            training_loss = 0
+            steps = 0
+            training_state = None
+            for X, Y in epoch:
+                steps += 1
 
-	# Create batches from raw data
-	batch_size = config.DATA_SIZE // config.NUM_BATCHES # tokens per batch
-	data_X = np.zeros([config.NUM_BATCHES, batch_size], dtype=np.int32)
-	data_y = np.zeros([config.NUM_BATCHES, batch_size], dtype=np.int32)
-	for i in range(config.NUM_BATCHES):
-		data_X[i, :] = raw_X[batch_size * i: batch_size * (i+1)]
-		data_y[i, :] = raw_y[batch_size * i: batch_size * (i+1)]
+                feed_dict={g['x']: X, g['y']: Y}
+                if training_state is not None:
+                    feed_dict[g['init_state']] = training_state
+                training_loss_, training_state, _ = sess.run([g['total_loss'],
+                                                      g['final_state'],
+                                                      g['train_step']],
+                                                             feed_dict)
+                training_loss += training_loss_
+            if verbose:
+                print("Average training loss for Epoch", idx, ":", training_loss/steps)
+            training_losses.append(training_loss/steps)
 
-	# Even though we have tokens per batch,
-	# We only want to feed in <num_steps> tokens at a time
-	feed_size = batch_size // config.NUM_STEPS
-	for i in range(feed_size):
-		X = data_X[:, i * config.NUM_STEPS:(i+1) * config.NUM_STEPS]
-		y = data_y[:, i * config.NUM_STEPS:(i+1) * config.NUM_STEPS]
-		yield (X, y)
+        if isinstance(save, str):
+            g['saver'].save(sess, save)
 
-def generate_epochs(config):
-	for i in range(config.NUM_EPOCHS):
-		yield generate_batch(config, generate_data(config))
+    return training_losses
 
-def rnn_logits(config, rnn_output):
-	with tf.variable_scope('softmax', reuse=True):
-		W_softmax = tf.get_variable('W_softmax', [config.STATE_SIZE, config.NUM_CLASSES])
-		b_softmax = tf.get_variable('b_softmax', [config.NUM_CLASSES], initializer=tf.constant_initializer(0.0))
-	return tf.matmul(rnn_output, W_softmax) + b_softmax
+def build_multilayer_lstm_graph_with_dynamic_rnn(
+    state_size = 100,
+    num_classes = vocab_size,
+    batch_size = 32,
+    num_steps = 200,
+    num_layers = 3,
+    learning_rate = 1e-4):
 
-def model(config):
+    reset_graph()
 
-	# Placeholders
-	X = tf.placeholder(tf.int32, [config.NUM_BATCHES, config.NUM_STEPS], name='input_placeholder')
-	y = tf.placeholder(tf.int32, [config.NUM_BATCHES, config.NUM_STEPS], name='labels_placeholder')
-	initial_state = tf.zeros([config.NUM_BATCHES, config.STATE_SIZE])
+    x = tf.placeholder(tf.int32, [batch_size, num_steps], name='input_placeholder')
+    y = tf.placeholder(tf.int32, [batch_size, num_steps], name='labels_placeholder')
 
-	# Prepre the inputs
-	X_one_hot = tf.one_hot(X, config.NUM_CLASSES)
-	rnn_inputs = [tf.squeeze(i, squeeze_dims=[1]) for i in tf.split(1, config.NUM_STEPS, X_one_hot)]
-	# ^ or tf.unpack(X_one_hot, axis=1)
+    embeddings = tf.get_variable('embedding_matrix', [num_classes, state_size])
 
-	# Define the RNN cell
-	with tf.variable_scope('rnn_cell'):
-		W_input = tf.get_variable('W_input', [config.NUM_CLASSES, config.STATE_SIZE])
-		W_hidden = tf.get_variable('W_hidden', [config.STATE_SIZE, config.STATE_SIZE])
-		b_hidden = tf.get_variable('b_hidden', [config.STATE_SIZE], initializer=tf.constant_initializer(0.0))
+    # Note that our inputs are no longer a list, but a tensor of dims batch_size x num_steps x state_size
+    rnn_inputs = tf.nn.embedding_lookup(embeddings, x)
 
-	# Creating the RNN
-	cell = tf.nn.rnn_cell.BasicRNNCell(config.STATE_SIZE)
-	rnn_outputs, final_state = tf.nn.rnn(cell, rnn_inputs, initial_state=initial_state)
+    cell = tf.nn.rnn_cell.LSTMCell(state_size, state_is_tuple=True)
+    cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=True)
+    init_state = cell.zero_state(batch_size, tf.float32)
+    rnn_outputs, final_state = tf.nn.dynamic_rnn(cell, rnn_inputs, initial_state=init_state)
 
-	# Logits and predictions
-	with tf.variable_scope('softmax'):
-		W_softmax = tf.get_variable('W_softmax', [config.STATE_SIZE, config.NUM_CLASSES])
-		b_softmax = tf.get_variable('b_softmax', [config.NUM_CLASSES], initializer=tf.constant_initializer(0.0))
+    with tf.variable_scope('softmax'):
+        W = tf.get_variable('W', [state_size, num_classes])
+        b = tf.get_variable('b', [num_classes], initializer=tf.constant_initializer(0.0))
 
-	logits = [rnn_logits(config, rnn_output) for rnn_output in rnn_outputs]
-	predictions = [tf.nn.softmax(logit) for logit in logits]
+    #reshape rnn_outputs and y so we can get the logits in a single matmul
+    rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
+    y_reshaped = tf.reshape(y, [-1])
 
-	# Loss and optimization
-	y_as_list = [tf.squeeze(i, squeeze_dims=[1]) for i in tf.split(1, config.NUM_STEPS, y)]
-	losses = [tf.nn.sparse_softmax_cross_entropy_with_logits(logit, label) for \
-			  logit, label in zip(logits, y_as_list)]
-	total_loss = tf.reduce_mean(losses)
-	train_step = tf.train.AdagradOptimizer(config.LEARNING_RATE).minimize(total_loss)
+    logits = tf.matmul(rnn_outputs, W) + b
 
-	return dict(X=X, y=y,
-			  final_state=final_state, logits=logits, 
-			  predictions=predictions, total_loss=total_loss, 
-			  train_step=train_step)
+    total_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped))
+    train_step = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
 
-def sample(config, sampling_type=1):
-
-	initial_state = tf.zeros([1,config.STATE_SIZE])
-	predictions = []
-
-	# Process preset tokens 
-	state = initial_state
-	for char in config.START_TOKEN:
-		idx = config.char_to_idx[char]
-		idx_one_hot = tf.one_hot(idx, config.NUM_CLASSES)
-		rnn_input = tf.reshape(idx_one_hot, [1,65])
-		state =  rnn_cell(config, rnn_input, state)
-
-	# Predict after preset tokens
-	logit = rnn_logits(config, state)
-	prediction = tf.argmax(tf.nn.softmax(logit), 1)[0]
-	predictions.append(prediction.eval())
-
-	for token_num in range(config.PREDICTION_LENGTH-1):
-		idx_one_hot = tf.one_hot(prediction, config.NUM_CLASSES)
-		rnn_input = tf.reshape(idx_one_hot, [1,65])
-		state =  rnn_cell(config, rnn_input, state)
-		logit = rnn_logits(config, state)
-
-		# scale the distribution
-		next_char_dist = logit/config.TEMPERATURE # for creativity, higher temperatures produce more nonexistent words BUT more creative samples
-		next_char_dist = tf.exp(next_char_dist)
-		next_char_dist /= tf.reduce_sum(next_char_dist)
-
-		dist = next_char_dist.eval()
-
-		# sample a character
-		if sampling_type == 0:
-			prediction = tf.argmax(tf.nn.softmax(next_char_dist), 1)[0].eval()
-		elif sampling_type == 1:
-			prediction = config.NUM_CLASSES - 1
-			point = random.random()
-			weight = 0.0
-			for index in range(0, config.NUM_CLASSES):
-				weight += dist[0][index]
-				if weight >= point:
-					prediction = index
-					break
-		else:
-			raise ValueError("Pick a valid sampling_type!")
-		predictions.append(prediction)
-
-	return dict(predictions=predictions)
+    return dict(
+        x = x,
+        y = y,
+        init_state = init_state,
+        final_state = final_state,
+        total_loss = total_loss,
+        train_step = train_step
+    )
 
 
-def train_network(config, g):
-
-	# Start tensorflow session
-	with tf.Session() as sess:
-
-		sess.run(tf.initialize_all_variables())
-		training_losses = []
-
-		for idx, epoch in enumerate(generate_epochs(config)):
-			training_loss = 0
-			training_state = np.zeros((config.NUM_BATCHES, config.STATE_SIZE))
-
-			print "\nEPOCH", idx
-			for step, (input_X, input_y) in enumerate(epoch):
-
-				predictions, total_loss, training_state, _ = sess.run(
-							[g['predictions'], g['total_loss'], g['final_state'], g['train_step']],
-							feed_dict={g['X']:input_X, 
-									   g['y']:input_y})
-
-				if step%100 == 0 and step>0:
-					print("Average loss:", total_loss/100) 
-					training_losses.append(total_loss)
-
-
-	return training_losses
-
-if __name__ == '__main__':
-	config = parameters()
-	
-	data = open(config.FILE, "r").read()
-	chars = list(set(data))
-	char_to_idx = {char:i for i, char in enumerate(chars)}
-	idx_to_char = {i:char for i, char in enumerate(chars)}
-
-	config.data = data
-	config.DATA_SIZE = len(data)
-	config.NUM_CLASSES = len(chars)
-	config.char_to_idx = char_to_idx
-	config.idx_to_char = idx_to_char
-
-	g = model(config)
-	training_losses = train_network(config, g)
-
-
-
-
+t = time.time()
+g = build_multilayer_lstm_graph_with_dynamic_rnn()
+print("It took", time.time() - t, "seconds to build the graph.")
+t = time.time()
+train_network(g, 3)
+print("It took", time.time() - t, "seconds to train for 3 epochs.")
