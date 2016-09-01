@@ -1,119 +1,187 @@
-"""
-Imports
-"""
 import numpy as np
 import tensorflow as tf
-import time
-import os
-from urllib2 import urlopen
-from tensorflow.models.rnn.ptb import reader
+from tensorflow.python.ops import rnn_cell, seq2seq
+import sys
 
-"""
-Load and process data, utility functions
-"""
+class parameters():
 
-file_url = 'https://raw.githubusercontent.com/jcjohnson/torch-rnn/master/data/tiny-shakespeare.txt'
-file_name = 'tinyshakespeare.txt'
-f = urlopen(file_url)
-raw_data = f.read()
-print("Data length:", len(raw_data))
+	def __init__(self):
 
-vocab = set(raw_data)
-vocab_size = len(vocab)
-print ("Unique tokens:", vocab_size)
-idx_to_vocab = dict(enumerate(vocab))
-vocab_to_idx = dict(zip(idx_to_vocab.values(), idx_to_vocab.keys()))
+		self.DATA_FILE = 'data/shakespeare.txt'
+		self.CKPT_DIR = 'char_RNN_ckpt_dir'
+		self.encoding = 'utf-8'
+		self.SAVE_EVERY = 1 # save model every epoch
+		self.TRAIN_RATIO = 0.8
+		self.VALID_RATIO = 0.1
 
-data = [vocab_to_idx[c] for c in raw_data]
-del raw_data
+		self.NUM_EPOCHS = 100
+		self.NUM_BATCHES = 50
+		self.SEQ_LEN = 50
+		self.MODEL = 'rnn'
+		self.NUM_HIDDEN_UNITS = 128
+		self.NUM_LAYERS = 2
+		self.GRAD_CLIP = 5.0
+		self.LEARNING_RATE = 0.002
+		self.DECAY_RATE = 0.97
+		self.DROPOUT = 0.5
 
-def gen_epochs(n, num_steps, batch_size):
-    for i in range(n):
-        yield reader.ptb_iterator(data, batch_size, num_steps)
+		self.SAMPLE_LEN = 500
+		self.START_TOKENS = "Thou "
+		self.SAMPLE_TYPE = 1 # 0=argmax, 1=temperature based
+		self.TEMPERATURE = 0.04
 
-def reset_graph():
-    if 'sess' in globals() and sess:
-        sess.close()
-    tf.reset_default_graph()
+def generate_data(config):
 
-def train_network(g, num_epochs, num_steps = 200, batch_size = 32, verbose = True, save=False):
-    tf.set_random_seed(2345)
-    with tf.Session() as sess:
-        sess.run(tf.initialize_all_variables())
-        training_losses = []
-        for idx, epoch in enumerate(gen_epochs(num_epochs, num_steps, batch_size)):
-            training_loss = 0
-            steps = 0
-            training_state = None
-            for X, Y in epoch:
-                steps += 1
+	data = open(config.DATA_FILE, "r").read()
+	chars = list(set(data))
+	char_to_idx = {char:i for i, char in enumerate(chars)}
+	idx_to_char = {i:char for i, char in enumerate(chars)}
 
-                feed_dict={g['x']: X, g['y']: Y}
-                if training_state is not None:
-                    feed_dict[g['init_state']] = training_state
-                training_loss_, training_state, _ = sess.run([g['total_loss'],
-                                                      g['final_state'],
-                                                      g['train_step']],
-                                                             feed_dict)
-                training_loss += training_loss_
-            if verbose:
-                print("Average training loss for Epoch", idx, ":", training_loss/steps)
-            training_losses.append(training_loss/steps)
+	config.DATA_SIZE = len(data)
+	config.NUM_CLASSES = len(chars)
+	config.char_to_idx = char_to_idx
+	config.idx_to_char = idx_to_char
 
-        if isinstance(save, str):
-            g['saver'].save(sess, save)
+	X = [config.char_to_idx[char] for char in data]
+	y = X[1:]
+	y[-1] = X[0]
 
-    return training_losses
+	# Split into train, valid and test sets
+	train_last_index = int(config.DATA_SIZE*config.TRAIN_RATIO)
+	valid_first_index = train_last_index + 1
+	valid_last_index = valid_first_index + int(config.DATA_SIZE*config.VALID_RATIO)
+	test_first_index = valid_last_index + 1
 
-def build_multilayer_lstm_graph_with_dynamic_rnn(
-    state_size = 100,
-    num_classes = vocab_size,
-    batch_size = 32,
-    num_steps = 200,
-    num_layers = 3,
-    learning_rate = 1e-4):
+	config.train_X = X[:train_last_index]
+	config.train_y = y[:train_last_index]
+	config.valid_X = X[valid_first_index:valid_last_index]
+	config.valid_y = y[valid_first_index:valid_last_index]
+	config.test_X = X[test_first_index:]
+	config.test_y = y[test_first_index:]
 
-    reset_graph()
+	return config
 
-    x = tf.placeholder(tf.int32, [batch_size, num_steps], name='input_placeholder')
-    y = tf.placeholder(tf.int32, [batch_size, num_steps], name='labels_placeholder')
+def generate_batch(config, raw_X, raw_y):
 
-    embeddings = tf.get_variable('embedding_matrix', [num_classes, state_size])
+	# Create batches from raw data
+	batch_size = len(raw_X) // config.NUM_BATCHES # tokens per batch
+	data_X = np.zeros([config.NUM_BATCHES, batch_size], dtype=np.int32)
+	data_y = np.zeros([config.NUM_BATCHES, batch_size], dtype=np.int32)
+	for i in range(config.NUM_BATCHES):
+		data_X[i, :] = raw_X[batch_size * i: batch_size * (i+1)]
+		data_y[i, :] = raw_y[batch_size * i: batch_size * (i+1)]
 
-    # Note that our inputs are no longer a list, but a tensor of dims batch_size x num_steps x state_size
-    rnn_inputs = tf.nn.embedding_lookup(embeddings, x)
+	# Even though we have tokens per batch,
+	# We only want to feed in <SEQ_LEN> tokens at a time
+	feed_size = batch_size // config.SEQ_LEN
+	for i in range(feed_size):
+		X = data_X[:, i * config.SEQ_LEN:(i+1) * config.SEQ_LEN]
+		y = data_y[:, i * config.SEQ_LEN:(i+1) * config.SEQ_LEN]
+		yield (X, y)
 
-    cell = tf.nn.rnn_cell.LSTMCell(state_size, state_is_tuple=True)
-    cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers, state_is_tuple=True)
-    init_state = cell.zero_state(batch_size, tf.float32)
-    rnn_outputs, final_state = tf.nn.dynamic_rnn(cell, rnn_inputs, initial_state=init_state)
+def generate_epochs(config):
 
-    with tf.variable_scope('softmax'):
-        W = tf.get_variable('W', [state_size, num_classes])
-        b = tf.get_variable('b', [num_classes], initializer=tf.constant_initializer(0.0))
+	for i in range(config.NUM_EPOCHS):
+		yield generate_batch(config, generate_data(config))
 
-    #reshape rnn_outputs and y so we can get the logits in a single matmul
-    rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
-    y_reshaped = tf.reshape(y, [-1])
+def model(config):
 
-    logits = tf.matmul(rnn_outputs, W) + b
+	if config.MODEL == 'rnn':
+		rnn_cell_type = rnn_cell.BasicRNNCell
+	elif config.MODEL == 'gru':
+		rnn_cell_type = rnn_cell.GRUCell
+	elif config.MODEL == 'lstm':
+		rnn_cell_type = rnn_cell.BasicLSTMCell
+	else:
+		raise Exception("Choose a valid RNN unit type.")
 
-    total_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped))
-    train_step = tf.train.AdamOptimizer(learning_rate).minimize(total_loss)
+	# Single cell
+	single_cell = rnn_cell_type(config.NUM_HIDDEN_UNITS)
+	# Dropout
+	single_cell = rnn_cell.DropoutWrapper(single_cell, output_keep_prob=1-config.DROPOUT)
+	# Each state as one cell
+	cell = rnn_cell.MultiRNNCell([single_cell] * config.NUM_LAYERS)
 
-    return dict(
-        x = x,
-        y = y,
-        init_state = init_state,
-        final_state = final_state,
-        total_loss = total_loss,
-        train_step = train_step
-    )
+	X = tf.placeholder(tf.int32, [config.NUM_BATCHES, config.SEQ_LEN])
+	y = tf.placeholder(tf.int32, [config.NUM_BATCHES, config.SEQ_LEN])
+	initial_state = cell.zero_state(config.NUM_BATCHES, tf.float32)
+
+	with tf.variable_scope('rnn'):
+		W_softmax = tf.get_variable("W_softmax", [config.NUM_HIDDEN_UNITS, config.NUM_CLASSES])
+		b_softmax = tf.get_variable("b_softmax", [config.NUM_CLASSES])
+		with tf.device("/cpu:0"):
+			# Embedding is same as W_input
+			embedding = tf.get_variable("embedding", [config.NUM_CLASSES, config.NUM_HIDDEN_UNITS])
+			# <num_batches, seq_len, num_classes>
+			inputs = tf.split(1, config.SEQ_LEN, 
+						   tf.nn.embedding_lookup(embedding, X))
+			# <seq_len, num_batches, num_classes> which is how we need for RNN input
+			inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
+
+	# <seq_len, num_batches, num_classes>
+	outputs, final_state = seq2seq.rnn_decoder(inputs, initial_state, cell, scope='rnn')
+	# <num_batches, num_hidden_units*seq_len> 
+	output = tf.concat(1, outputs)
+	# <num*batches*seq*len, num_hidden_units>
+	output = tf.reshape(output, [-1, config.NUM_HIDDEN_UNITS])
+
+	logits = tf.matmul(output, W_softmax) + b_softmax
+	probabilities = tf.nn.softmax(logits)
+
+	loss = seq2seq.sequence_loss_by_example([logits],
+									[tf.reshape(y, [-1])],
+									[tf.ones([config.NUM_BATCHES *
+										     config.SEQ_LEN])],
+									config.NUM_CLASSES)
+	total_loss = tf.reduce_mean(loss)
+
+	lr = tf.Variable(0.0, trainable=False)
+	trainable_vars = tf.trainable_variables()
+	grads, _ = tf.clip_by_global_norm(tf.gradients(total_loss, trainable_vars),
+							    config.GRAD_CLIP)
+	optimizer = tf.train.AdamOptimizer(lr)
+	train_optimizer = optimizer.apply_gradients(zip(grads, trainable_vars))
+
+	return dict(X=X, y=y, lr=lr, initial_state=initial_state,
+		       total_loss=total_loss, train_optimizer=train_optimizer)
+
+def train(config, g):
+
+	with tf.Session() as sess:
+		tf.initialize_all_variables().run()
+		print('All variables initialized')
+		print("Training...\n")
+
+		for epoch_num in range(config.NUM_EPOCHS):
+			sess.run(tf.assign(g['lr'], config.LEARNING_RATE*(config.DECAY_RATE**epoch_num)))
+			training_loss = []
+
+			epoch_training_loss = 0.0
+			num_feeds = (len(config.train_X) // config.NUM_BATCHES) // config.SEQ_LEN
+			for batch_num, (train_X, train_y) in enumerate(generate_batch(config, config.train_X, config.train_y)):
+				feed = {g['X']:train_X, g['y']: train_y}
+				total_loss, _ = sess.run([g['total_loss'], g['train_optimizer']], feed)
+				epoch_training_loss += total_loss
+
+				sys.stdout.write("Training progress: %d%%   \r" % (100*batch_num/float(num_feeds)) )
+				sys.stdout.flush()
+
+			training_loss.append(epoch_training_loss/float(num_feeds))
+			print "Avg loss per batch:", training_loss[-1]
+
+if __name__ == '__main__':
+	config = parameters()
+	config = generate_data(config)
+	g = model(config)
+	train(config, g)
 
 
-t = time.time()
-g = build_multilayer_lstm_graph_with_dynamic_rnn()
-print("It took", time.time() - t, "seconds to build the graph.")
-t = time.time()
-train_network(g, 3)
-print("It took", time.time() - t, "seconds to train for 3 epochs.")
+
+
+
+
+
+
+
+
+
