@@ -63,6 +63,22 @@ def build_dataset(config, words):
 
 	return data, count, word_to_idx, idx_to_word
 
+def generate_batch(config, data):
+
+	# get number of batches
+	config.NUM_BATCHES = len(data) // config.SEQ_LEN
+	data = data[:config.NUM_BATCHES * config.SEQ_LEN]
+
+	# Create batches
+	for batch_num in range(config.NUM_BATCHES):
+		input_data = data[batch_num*config.SEQ_LEN:(batch_num+1)*config.SEQ_LEN]
+		X, y = skip_gram(input_data, config.NUM_SKIPS, config.SKIP_WINDOW)
+		yield X, y
+
+def generate_epochs(config, data):
+	for epoch_num in range(config.NUM_EPOCHS):
+		yield generate_batch(config, data)
+
 def skip_gram(input_data, num_skips, skip_window):
 
 	# skips
@@ -81,22 +97,6 @@ def skip_gram(input_data, num_skips, skip_window):
 	X = np.array(X)
 	y = np.array(y).reshape((-1, 1))
 	return X, y
-
-def generate_batch(config, data):
-
-	# get number of batches
-	config.NUM_BATCHES = len(data) // config.SEQ_LEN
-	data = data[:config.NUM_BATCHES * config.SEQ_LEN]
-
-	# Create batches
-	for batch_num in range(config.NUM_BATCHES):
-		input_data = data[batch_num*config.SEQ_LEN:(batch_num+1)*config.SEQ_LEN]
-		X, y = skip_gram(input_data, config.NUM_SKIPS, config.SKIP_WINDOW)
-		yield X, y
-
-def generate_epochs(config, data):
-	for epoch_num in range(config.NUM_EPOCHS):
-		yield generate_batch(config, data)
 
 def model(config):
 

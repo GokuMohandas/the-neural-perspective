@@ -121,8 +121,8 @@ def rnn_inputs(config, input_data):
 	# <seq_len, num_batches, num_hidden_units>
 	# num_batches will be in columns bc we feed in row by row into RNN.
 	# 1st row = 1st tokens from each batch
-	inputs = [tf.squeeze(i, [1]) for i in tf.split(1, config.SEQ_LEN, embeddings)]
-	return inputs
+	#inputs = [tf.squeeze(i, [1]) for i in tf.split(1, config.SEQ_LEN, embeddings)]
+	return embeddings
 
 def rnn_softmax(config, outputs):
 	with tf.variable_scope('rnn_softmax', reuse=True):
@@ -151,7 +151,7 @@ def model(config):
 	''' Outputs from RNN '''
 	# Outputs: <seq_len, num_batches, num_hidden_units>
 	# state: <num_batches, num_layers*num_hidden_units>
-	outputs, state = tf.nn.rnn(stacked_cell, inputs, initial_state=initial_state)
+	outputs, state = tf.nn.dynamic_rnn(cell=stacked_cell, inputs=inputs, initial_state=initial_state)
 	# <seq_len*num_batches, num_hidden_units>
 	outputs = tf.reshape(tf.concat(1, outputs), [-1, config.NUM_HIDDEN_UNITS])
 
