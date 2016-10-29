@@ -6,7 +6,6 @@ class parameters():
 
 	def __init__(self):
 		self.LEARNING_RATE = 0.05
-		self.REG = 0
 		self.NUM_EPOCHS = 500
 		self.DISPLAY_STEP = 1 # epoch
 
@@ -15,48 +14,65 @@ def load_data():
 	trainX, trainY, testX, testY = mnist.train.images, mnist.train.labels, mnist.test.images, mnist.test.labels
 	return trainX, trainY, testX, testY
 
-def model(config):
+def create_model(sess, learning_rate):
+	tf_model = model(learning_rate)
+	sess.run(tf.initialize_all_variables())
+	return tf_model
 
-	# Placeholders
-	X = tf.placeholder("float", [None, 784])
-	y = tf.placeholder("float", [None, 10])
+class model(object):
 
-	# Weights
-	with tf.variable_scope('weights'):
-		W = tf.Variable(tf.random_normal([784, 10], stddev=0.01), "W")
+	def __init__(self, learning_rate):
 
-	logits = tf.matmul(X, W)
-	cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits, y))
-	optimizer = tf.train.GradientDescentOptimizer(config.LEARNING_RATE).minimize(cost)
+		# Placeholders
+		self.X = tf.placeholder("float", [None, 784])
+		self.y = tf.placeholder("float", [None, 10])
 
-	# Prediction
-	prediction = tf.argmax(logits, 1)
+		# Weights
+		with tf.variable_scope('weights'):
+			W = tf.Variable(tf.random_normal([784, 10], stddev=0.01), "W")
 
-	return dict(
-		X=X, y=y, W=W,
-		prediction=prediction,
-		cost=cost, optimizer=optimizer)
+		self.logits = tf.matmul(self.X, W)
+		self.cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(self.logits, self.y))
+		self.optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
 
-def train(config, g):
+		# Prediction
+		self.prediction = tf.argmax(self.logits, 1)
+
+	def step(self, sess, batch_X, batch_y, forward_only=True):
+
+		input_feed = {self.X: batch_X, self.y: batch_y}
+		if not forward_only:
+			output_feed = [self.prediction,
+						self.cost,
+						self.optimizer]
+		else:
+			output_feed = [self.cost]
+
+		outputs = sess.run(output_feed, input_feed)
+
+		if not forward_only:
+			return outputs[0], outputs[1], outputs[2]
+		else:
+			return outputs[0]
+
+def train(FLAGS):
 
 	with tf.Session() as sess:
-		sess.run(tf.initialize_all_variables())
+
+		model = create_model(sess, FLAGS.LEARNING_RATE)
 
 		trainX, trainY, testX, testY = load_data()
 
-		for epoch_num in range(config.NUM_EPOCHS):
+		for epoch_num in range(FLAGS.NUM_EPOCHS):
 
-			prediction, training_loss, _ = sess.run([g['prediction'], 
-												 g['cost'], 
-												 g['optimizer']],
-										 feed_dict={g['X']:trainX, g['y']:trainY})
+			prediction, training_loss, _ = model.step(sess, trainX, trainY, forward_only=False)
+
 			# Display
-			if epoch_num%config.DISPLAY_STEP == 0:
+			if epoch_num%FLAGS.DISPLAY_STEP == 0:
 				print "EPOCH %i: \n Training loss: %.3f, Test loss: %.3f" % (
-					epoch_num, training_loss, sess.run(g['cost'], feed_dict={g['X']:testX, g['y']:testY}))
+					epoch_num, training_loss, model.step(sess, testX, testY, forward_only=True))
 
 if __name__== '__main__':
-	config = parameters()
-	g = model(config)
-	train(config, g)
+	FLAGS = parameters()
+	train(FLAGS)
 
