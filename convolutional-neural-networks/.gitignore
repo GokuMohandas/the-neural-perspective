@@ -1,2 +1,3 @@
 logs/
 MNIST_data/
+CNN_ckpt_dir/

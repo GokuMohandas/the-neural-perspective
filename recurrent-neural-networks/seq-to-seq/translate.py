@@ -78,8 +78,6 @@ def create_model(session, forward_only, FLAGS):
 
 	return s2smodel
 
-	return s2smodel
-
 def train(FLAGS):
 
 	with tf.Session() as sess:

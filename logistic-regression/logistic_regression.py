@@ -60,11 +60,9 @@ def train(FLAGS):
 	with tf.Session() as sess:
 
 		model = create_model(sess, FLAGS.LEARNING_RATE)
-
 		trainX, trainY, testX, testY = load_data()
 
 		for epoch_num in range(FLAGS.NUM_EPOCHS):
-
 			prediction, training_loss, _ = model.step(sess, trainX, trainY, forward_only=False)
 
 			# Display
