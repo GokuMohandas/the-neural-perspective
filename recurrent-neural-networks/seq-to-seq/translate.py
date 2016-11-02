@@ -43,7 +43,7 @@ def get_data(FLAGS):
 	# Load train and test sets
 	train_set, test_set = data_utils.load_data(FLAGS, train_ratio=0.8)
 	for bucket_id, (_, _) in enumerate(FLAGS.BUCKETS):
-		print ("BUCKET: %i, TRAIN: %d, TEST: %d" % (bucket_id, 
+		print ("BUCKET: %i, TRAIN: %d, TEST: %d" % (bucket_id,
 			len(train_set[bucket_id]), len(test_set[bucket_id])))
 
 	return train_set, test_set
@@ -134,7 +134,7 @@ def train(FLAGS):
 				if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
 					sess.run(model.learning_rate_decay_op)
 				previous_losses.append(loss)
-				
+
 				# Save checkpoint and zero timer and loss.
 				if not os.path.isdir(FLAGS.TRAIN_DIR):
 					os.makedirs(FLAGS.TRAIN_DIR)
@@ -146,10 +146,10 @@ def train(FLAGS):
 				for bucket_id in xrange(len(FLAGS.BUCKETS)):
 					encoder_inputs, decoder_inputs, target_weights = model.get_batch(
 						test_set, bucket_id)
-					_, eval_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
-						target_weights, bucket_id, True)
-					eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float(
-						"inf")
+					_, eval_loss, _ = model.step(sess, encoder_inputs,
+						decoder_inputs, target_weights, bucket_id, True)
+					eval_ppx = math.exp(float(eval_loss)) \
+						if eval_loss < 300 else float("inf")
 					print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
 				sys.stdout.flush()
 
@@ -198,7 +198,8 @@ def decode(FLAGS):
 			if data_utils.EOS_ID in outputs:
 				outputs = outputs[:outputs.index(data_utils.EOS_ID)]
 			# Print out French sentence corresponding to outputs.
-			print(" ".join([tf.compat.as_str(rev_fr_vocab[output]) for output in outputs]))
+			print(" ".join([tf.compat.as_str(rev_fr_vocab[output]) \
+				for output in outputs]))
 
 def translate_sentence(FLAGS):
 
@@ -224,7 +225,8 @@ def translate_sentence(FLAGS):
 		sentence = sys.stdin.readline()
 		while sentence:
 			# Get token-ids for the input sentence.
-			token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), en_vocab)
+			token_ids = data_utils.sentence_to_token_ids(
+				tf.compat.as_bytes(sentence), en_vocab)
 			# Which bucket does it belong to?
 			bucket_id = min([b for b in xrange(len(FLAGS.BUCKETS))
 				if FLAGS.BUCKETS[b][0] > len(token_ids)])
@@ -240,7 +242,8 @@ def translate_sentence(FLAGS):
 			if data_utils.EOS_ID in outputs:
 				outputs = outputs[:outputs.index(data_utils.EOS_ID)]
 			# Print out French sentence corresponding to outputs.
-			print(" ".join([tf.compat.as_str(rev_fr_vocab[output]) for output in outputs]))
+			print(" ".join([tf.compat.as_str(
+				rev_fr_vocab[output]) for output in outputs]))
 			print("> ",end="")
 			sys.stdout.flush()
 			sentence = sys.stdin.readline()

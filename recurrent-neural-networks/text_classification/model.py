@@ -1,127 +1,156 @@
 import tensorflow as tf
 
-def rnn_cell(FLAGS):
+def rnn_cell(FLAGS, dropout):
 
-	# Get the cell type
-	if FLAGS.rnn_unit == 'rnn':
-		rnn_cell_type = tf.nn.rnn_cell.BasicRNNCell
-	elif FLAGS.rnn_unit == 'gru':
-		rnn_cell_type = tf.nn.rnn_cell.GRUCell
-	elif FLAGS.rnn_unit == 'lstm':
-		rnn_cell_type = tf.nn.rnn_cell.BasicLSTMCell
-	else:
-		raise Exception("Choose a valid RNN unit type.")
+    # Get the cell type
+    if FLAGS.rnn_unit == 'rnn':
+        rnn_cell_type = tf.nn.rnn_cell.BasicRNNCell
+    elif FLAGS.rnn_unit == 'gru':
+        rnn_cell_type = tf.nn.rnn_cell.GRUCell
+    elif FLAGS.rnn_unit == 'lstm':
+        rnn_cell_type = tf.nn.rnn_cell.BasicLSTMCell
+    else:
+        raise Exception("Choose a valid RNN unit type.")
 
-	# Single cell
-	single_cell = rnn_cell_type(FLAGS.num_hidden_units, state_is_tuple=True)
+    # Single cell
+    single_cell = rnn_cell_type(FLAGS.num_hidden_units)
 
-	# Dropout
-	single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell, output_keep_prob=1-FLAGS.dropout)
+    # Dropout
+    single_cell = tf.nn.rnn_cell.DropoutWrapper(single_cell,
+        output_keep_prob=1-dropout)
 
-	# Each state as one cell
-	stacked_cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * FLAGS.num_layers, state_is_tuple=True)
+    # Each state as one cell
+    stacked_cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * FLAGS.num_layers)
 
-	return stacked_cell
+    return stacked_cell
 
 def rnn_inputs(FLAGS, input_data):
 
-	with tf.variable_scope('rnn_inputs', reuse=True):
-		W_input = tf.get_variable("W_input", [FLAGS.en_vocab_size, FLAGS.num_hidden_units])
+    with tf.variable_scope('rnn_inputs', reuse=True):
+        W_input = tf.get_variable("W_input",
+            [FLAGS.en_vocab_size, FLAGS.num_hidden_units])
 
-	# <num_examples, seq_len, num_hidden_units>
-	embeddings = tf.nn.embedding_lookup(W_input, input_data)
+    # <num_examples, seq_len, num_hidden_units>
+    embeddings = tf.nn.embedding_lookup(W_input, input_data)
 
-	return embeddings
+    return embeddings
 
 def rnn_softmax(FLAGS, outputs):
-	with tf.variable_scope('rnn_softmax', reuse=True):
-		W_softmax = tf.get_variable("W_softmax", [FLAGS.num_hidden_units, FLAGS.num_classes])
-		b_softmax = tf.get_variable("b_softmax", [FLAGS.num_classes])
+    with tf.variable_scope('rnn_softmax', reuse=True):
+        W_softmax = tf.get_variable("W_softmax",
+            [FLAGS.num_hidden_units, FLAGS.num_classes])
+        b_softmax = tf.get_variable("b_softmax", [FLAGS.num_classes])
 
-	logits = tf.matmul(outputs, W_softmax) + b_softmax
+    logits = tf.matmul(outputs, W_softmax) + b_softmax
 
-	return logits
+    return logits
 
 def length(data):
-	relevant = tf.sign(tf.abs(data))
-	length = tf.reduce_sum(relevant, reduction_indices=1)
-	length = tf.cast(length, tf.int32)
-	return length
+    relevant = tf.sign(tf.abs(data))
+    length = tf.reduce_sum(relevant, reduction_indices=1)
+    length = tf.cast(length, tf.int32)
+    return length
 
-def last_relevant(output, length):
-	batch_size = 64
-	max_length = 61
-	out_size = 300
-	index = tf.range(0, batch_size) * max_length + (length - 1)
+class model(object):
 
-	flat = tf.reshape(output, [-1, out_size])
-	relevant = tf.gather(flat, index)
-	return index, relevant
+    def __init__(self, FLAGS):
 
-def model(FLAGS, train=True, sample=False):
+        # Placeholders
+        self.inputs_X = tf.placeholder(tf.int32,
+            shape=[None, None], name='inputs_X')
+        self.targets_y = tf.placeholder(tf.float32,
+            shape=[None, None], name='targets_y')
+        self.dropout = tf.placeholder(tf.float32)
 
-	# Placeholders
-	inputs_X = tf.placeholder(tf.int32, shape=[FLAGS.batch_size, None], name='inputs_X')
-	targets_y = tf.placeholder(tf.float32, shape=[FLAGS.batch_size, FLAGS.num_classes], name='targets_y')
+        # RNN cell
+        stacked_cell = rnn_cell(FLAGS, self.dropout)
 
-	# RNN cell
-	if not train:
-		FLAGS.dropout=0.0
-	stacked_cell = rnn_cell(FLAGS)
+        # Inputs to RNN
+        with tf.variable_scope('rnn_inputs'):
+            W_input = tf.get_variable("W_input",
+                [FLAGS.en_vocab_size, FLAGS.num_hidden_units])
 
-	# Inputs to RNN
-	with tf.variable_scope('rnn_inputs'):
-		W_input = tf.get_variable("W_input", [FLAGS.en_vocab_size, FLAGS.num_hidden_units])
+        inputs = rnn_inputs(FLAGS, self.inputs_X)
+        #initial_state = stacked_cell.zero_state(FLAGS.batch_size, tf.float32)
 
-	inputs = rnn_inputs(FLAGS, inputs_X)
-	initial_state = stacked_cell.zero_state(FLAGS.batch_size, tf.float32)
+        # Outputs from RNN
+        seq_lens = length(self.inputs_X)
+        all_outputs, state = tf.nn.dynamic_rnn(cell=stacked_cell, inputs=inputs,
+            sequence_length=seq_lens, dtype=tf.float32)
 
-	# Outputs from RNN
-	seq_lens = length(inputs_X)
-	all_outputs, state = tf.nn.dynamic_rnn(cell=stacked_cell, inputs=inputs, 
-		initial_state=initial_state, sequence_length=seq_lens)
+        # state has the last RELEVANT output automatically since we fed in seq_len
+        # [0] because state is a tuple with a tensor inside it
+        outputs = state[0]
 
-	if train:
+        # Process RNN outputs
+        with tf.variable_scope('rnn_softmax'):
+            W_softmax = tf.get_variable("W_softmax",
+                [FLAGS.num_hidden_units, FLAGS.num_classes])
+            b_softmax = tf.get_variable("b_softmax", [FLAGS.num_classes])
 
-		index, outputs = last_relevant(all_outputs, seq_lens)
+        # Logits
+        logits = rnn_softmax(FLAGS, outputs)
+        probabilities = tf.nn.softmax(logits)
+        self.accuracy = tf.equal(tf.argmax(
+            self.targets_y,1), tf.argmax(logits,1))
 
-		# Process RNN outputs
-		with tf.variable_scope('rnn_softmax'):
-			W_softmax = tf.get_variable("W_softmax", [FLAGS.num_hidden_units, FLAGS.num_classes])
-			b_softmax = tf.get_variable("b_softmax", [FLAGS.num_classes])
+        # Loss
+        self.loss = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(logits, self.targets_y))
 
-		# Logits	
-		logits = rnn_softmax(FLAGS, outputs)
-		probabilities = tf.nn.softmax(logits)
-		accuracy = tf.equal(tf.argmax(targets_y,1), tf.argmax(logits,1))
+        # Optimization
+        self.lr = tf.Variable(0.0, trainable=False)
+        trainable_vars = tf.trainable_variables()
+        # clip the gradient to avoid vanishing or blowing up gradients
+        grads, _ = tf.clip_by_global_norm(
+            tf.gradients(self.loss, trainable_vars), FLAGS.max_gradient_norm)
+        optimizer = tf.train.AdamOptimizer(self.lr)
+        self.train_optimizer = optimizer.apply_gradients(
+            zip(grads, trainable_vars))
 
-		# Loss
-		loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits, targets_y))
-		final_state = state
+        # Below are values we will use for sampling (generating the sentiment
+        # after each word.)
 
-		# Optimization
-		lr = tf.Variable(0.0, trainable=False)
-		trainable_vars = tf.trainable_variables()
-		grads, _ = tf.clip_by_global_norm(tf.gradients(loss, trainable_vars),
-										  FLAGS.max_gradient_norm) # clip the gradient to avoid vanishing or blowing up gradients
-		optimizer = tf.train.AdamOptimizer(lr)
-		train_optimizer = optimizer.apply_gradients(zip(grads, trainable_vars))
+        # this is taking all the ouputs for the first input sequence
+        # (only 1 input sequence since we are sampling)
+        sampling_outputs = all_outputs[0]
 
-		return dict(inputs_X=inputs_X, targets_y=targets_y, seq_lens=seq_lens, index=index, all_outputs=all_outputs,
-			lr=lr, outputs=outputs, logits=logits, accuracy=accuracy, loss=loss, train_optimizer=train_optimizer)
+        # Logits
+        sampling_logits = rnn_softmax(FLAGS, sampling_outputs)
+        self.sampling_probabilities = tf.nn.softmax(sampling_logits)
 
-	elif sample:
+        # Components for model saving
+        self.global_step = tf.Variable(0, trainable=False)
+        self.saver = tf.train.Saver(tf.all_variables())
 
-		outputs = all_outputs[0] # this is taking all the ouputs for the first input sequence (only 1 input sequence since we are sampling)
+    def step(self, sess, batch_X, batch_y=None, dropout=0.0,
+        forward_only=True, sampling=False):
 
-		# Process RNN outputs
-		with tf.variable_scope('rnn_softmax'):
-			W_softmax = tf.get_variable("W_softmax", [FLAGS.num_hidden_units, FLAGS.num_classes])
-			b_softmax = tf.get_variable("b_softmax", [FLAGS.num_classes])
+        input_feed = {self.inputs_X: batch_X,
+                      self.targets_y: batch_y,
+                      self.dropout: dropout}
 
-		# Logits	
-		logits = rnn_softmax(FLAGS, outputs)
-		probabilities = tf.nn.softmax(logits)
+        if forward_only:
+            if not sampling:
+                output_feed = [self.loss,
+                               self.accuracy]
+            elif sampling:
+                input_feed = {self.inputs_X: batch_X,
+                              self.dropout: dropout}
+                output_feed = [self.sampling_probabilities]
+        else: # training
+            output_feed = [self.train_optimizer,
+                           self.loss,
+                           self.accuracy]
 
-		return dict(inputs_X=inputs_X, probabilities=probabilities)
+
+        outputs = sess.run(output_feed, input_feed)
+
+        if forward_only:
+            if not sampling:
+                return outputs[0], outputs[1]
+            elif sampling:
+                return outputs[0]
+        else: # training
+            return outputs[0], outputs[1], outputs[2]
 
