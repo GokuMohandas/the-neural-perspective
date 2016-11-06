@@ -1,3 +1,3 @@
 # Neural-Perspective
 
-All things non-shallow
+Code for http://theneuralperspective.com
