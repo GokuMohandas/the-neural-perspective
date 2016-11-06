@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns # for pretty plots
 from scipy.stats import norm
+import os
 
 class parameters():
 
@@ -297,9 +298,6 @@ def train(FLAGS):
 
             if i%1000 == 0:
                 print i/float(FLAGS.num_epochs)
-
-            if i%100 == 0:
-                plot_G(sess, GAN, FLAGS, save=True, num_epoch=i)
 
             # k updates to discriminator
             for j in xrange(k):
