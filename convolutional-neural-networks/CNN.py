@@ -35,26 +35,26 @@ def generate_epochs(num_epochs, batch_size, X, y):
     for epoch_num in range(num_epochs):
         yield generate_batches(batch_size, X, y)
 
-def cnn_operations(X, w, w2, w3, w4, w_o, 
+def cnn_operations(X, w, w2, w3, w4, w_o,
                 dropout_value_conv, dropout_value_hidden):
 
-    l1a = tf.nn.relu(tf.nn.conv2d(X, w, 
+    l1a = tf.nn.relu(tf.nn.conv2d(X, w,
         strides=[1,1,1,1], padding='SAME'))
-    l1 = tf.nn.max_pool(l1a, ksize=[1,2,2,1], 
+    l1 = tf.nn.max_pool(l1a, ksize=[1,2,2,1],
         strides=[1,2,2,1], padding='SAME')
     l1 = tf.nn.dropout(l1, dropout_value_conv)
 
-    l2a = tf.nn.relu(tf.nn.conv2d(l1, w2, 
+    l2a = tf.nn.relu(tf.nn.conv2d(l1, w2,
         strides=[1,1,1,1], padding='SAME'))
-    l2 = tf.nn.max_pool(l2a, ksize=[1,2,2,1], 
+    l2 = tf.nn.max_pool(l2a, ksize=[1,2,2,1],
         strides=[1,2,2,1], padding='SAME')
     l2 = tf.nn.dropout(l2, dropout_value_conv)
 
-    l3a = tf.nn.relu(tf.nn.conv2d(l2, w3, 
+    l3a = tf.nn.relu(tf.nn.conv2d(l2, w3,
         strides=[1,1,1,1], padding='SAME'))
-    l3 = tf.nn.max_pool(l3a, ksize=[1,2,2,1], 
+    l3 = tf.nn.max_pool(l3a, ksize=[1,2,2,1],
         strides=[1,2,2,1], padding='SAME')
-    l3 = tf.reshape(l3, 
+    l3 = tf.reshape(l3,
         [-1, w4.get_shape().as_list()[0]]) # flatten to shape(?, 2048)
     l3 = tf.nn.dropout(l3, dropout_value_conv)
 
@@ -76,6 +76,13 @@ class cnn_model(object):
         self.dropout_value_conv = tf.placeholder("float")
         self.dropout_value_hidden = tf.placeholder("float")
 
+        """
+        Padding = 1, stride = 1 for conv, stride = 2 for pooling.
+        Note 28 is an unusal shape so if you go through the CONV math
+        You will get to a point where you will do 5/2, which translates to
+        3 (round up).
+        """
+
         # Initalize weights
         w = init_weights([3, 3, 1, 32])       # 3x3x1 conv, 32 outputs
         w2 = init_weights([3, 3, 32, 64])     # 3x3x32 conv, 64 outputs
@@ -83,7 +90,7 @@ class cnn_model(object):
         w4 = init_weights([128 * 4 * 4, 625]) # FC 128 * 4 * 4 = 2048 inputs, 625 outputs
         w_o = init_weights([625, 10])         # FC 625 inputs, 10 outputs (labels)
 
-        self.logits = cnn_operations(self.X, w, w2, w3, w4, w_o, 
+        self.logits = cnn_operations(self.X, w, w2, w3, w4, w_o,
                     self.dropout_value_conv, self.dropout_value_hidden)
         self.cost = tf.reduce_mean(
                     tf.nn.softmax_cross_entropy_with_logits(
@@ -92,7 +99,7 @@ class cnn_model(object):
                                                     self.cost)
 
         # Accuracy
-        self.correct_prediction = tf.equal(tf.argmax(self.y, 1), 
+        self.correct_prediction = tf.equal(tf.argmax(self.y, 1),
                                     tf.argmax(self.logits, 1))
         self.accuracy = tf.reduce_mean(tf.cast(
                             self.correct_prediction, tf.float32))
@@ -101,8 +108,8 @@ class cnn_model(object):
         self.global_step = tf.Variable(0, trainable=False)
         self.saver = tf.train.Saver(tf.all_variables())
 
-    def step(self, sess, batch_X, batch_y, 
-        dropout_value_conv, dropout_value_hidden, 
+    def step(self, sess, batch_X, batch_y,
+        dropout_value_conv, dropout_value_hidden,
         forward_only=True):
 
         input_feed = {self.X: batch_X, self.y: batch_y,
@@ -110,7 +117,7 @@ class cnn_model(object):
                 self.dropout_value_hidden: dropout_value_hidden}
 
         if not forward_only:
-            output_feed = [self.logits, self.cost, 
+            output_feed = [self.logits, self.cost,
                            self.accuracy, self.optimizer]
         else:
             output_feed = [self.cost, self.accuracy]
@@ -128,7 +135,7 @@ def create_model(sess, FLAGS):
 
     ckpt = tf.train.get_checkpoint_state(FLAGS.ckpt_dir)
     if ckpt and tf.gfile.Exists(ckpt.model_checkpoint_path):
-        print("Restoring old model parameters from %s" % 
+        print("Restoring old model parameters from %s" %
                              ckpt.model_checkpoint_path)
         model.saver.restore(sess, ckpt.model_checkpoint_path)
     else:
@@ -146,7 +153,7 @@ def train(FLAGS):
 
         # Training
         for epoch_num, epoch in enumerate(
-                                generate_epochs(FLAGS.num_epochs, 
+                                generate_epochs(FLAGS.num_epochs,
                                                 FLAGS.batch_size,
                                                 trainX,
                                                 trainY)):
@@ -154,7 +161,7 @@ def train(FLAGS):
             train_accuracy = []
             print "Training in progress..."
             for batch_num, (input_X, labels_y) in enumerate(epoch):
-                logits, cost, accuracy, _ = model.step(sess, 
+                logits, cost, accuracy, _ = model.step(sess,
                                                        input_X, labels_y,
                                                        dropout_value_conv=0.8,
                                                        dropout_value_hidden=0.5,
@@ -164,19 +171,19 @@ def train(FLAGS):
 
             print "Training:"
             print "Epoch: %i, batch: %i, cost: %.3f, accuarcy: %.3f" % (
-                    epoch_num, batch_num, 
+                    epoch_num, batch_num,
                     np.mean(train_cost), np.mean(train_accuracy))
 
             # Validation
             for epoch_num, epoch in enumerate(generate_epochs(
-                                                num_epochs=1, 
-                                                batch_size=FLAGS.batch_size, 
-                                                X=testX, 
+                                                num_epochs=1,
+                                                batch_size=FLAGS.batch_size,
+                                                X=testX,
                                                 y=testY)):
                 test_cost = []
                 test_accuracy = []
                 for batch_num, (input_X, labels_y) in enumerate(epoch):
-                    cost, accuracy = model.step(sess, 
+                    cost, accuracy = model.step(sess,
                                                 input_X, labels_y,
                                                 dropout_value_conv=0.0,
                                                 dropout_value_hidden=0.0,
@@ -186,7 +193,7 @@ def train(FLAGS):
 
                 print "Validation:"
                 print "Epoch: %i, batch: %i, cost: %.3f, accuarcy: %.3f" % (
-                    epoch_num, batch_num, 
+                    epoch_num, batch_num,
                     np.mean(test_cost), np.mean(test_accuracy))
 
             # Save checkpoint every epoch.
@@ -194,7 +201,7 @@ def train(FLAGS):
                 os.makedirs(FLAGS.ckpt_dir)
             checkpoint_path = os.path.join(FLAGS.ckpt_dir, "model.ckpt")
             print "Saving the model."
-            model.saver.save(sess, checkpoint_path, 
+            model.saver.save(sess, checkpoint_path,
                              global_step=model.global_step)
 
 if __name__ == '__main__':

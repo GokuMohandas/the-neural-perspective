@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns # for pretty plots
+import seaborn as sns
 from scipy.stats import norm
 import os
 
@@ -122,7 +122,10 @@ class GAN_model(object):
             G, self.theta_G = mlp(self.z,
                                     FLAGS.x_dimensions,
                                     FLAGS.x_dimensions)
+
             # We need to scale our X' to match X's scale
+            # So G doesn't have to learn the scaling too
+            # which may take more time and/or lead to never converging
             self.G = tf.mul(5.0, G)
 
         with tf.variable_scope("D") as scope:
@@ -311,6 +314,16 @@ def train(FLAGS):
                                     FLAGS.batch_size) + \
                                     np.random.random(FLAGS.batch_size)*0.01
                 batch_z = np.reshape(batch_z, (FLAGS.batch_size, 1))
+
+                ''' Both batch_X and batch_Z are sorted for manifold alignment.
+                Manifold alignment
+                (https://sites.google.com/site/changwangnk/home/ma-html) will help
+                G learn the underlying structure of p_data. By sorting, we are
+                making this process easier, since now adjacent points in Z
+                will directly map to adjacent points in X (and even the scale
+                will match since we scaled outputs from G.)
+                '''
+
                 objective_Ds[i], _ = GAN.step_D(sess, batch_z, batch_X)
 
             # 1 update to G
@@ -320,10 +333,6 @@ def train(FLAGS):
                                     np.random.random(FLAGS.batch_size)*0.01
             batch_z = np.reshape(batch_z, (FLAGS.batch_size, 1))
             objective_Gs[i], _ = GAN.step_G(sess, batch_z)
-
-
-        plt.legend()
-        plt.show()
 
         # Plot objectives
         plt.plot(xrange(FLAGS.num_epochs), objective_Ds, label="objective_D")
