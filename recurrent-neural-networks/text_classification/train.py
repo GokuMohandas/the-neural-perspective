@@ -83,14 +83,9 @@ def train():
         split_data(X, y, seq_lens)
 
     with tf.Session() as sess:
-        model = create_model(sess, FLAGS)
 
-        # Load old model state if available
-        saver = tf.train.Saver(tf.all_variables())
-        ckpt = tf.train.get_checkpoint_state(FLAGS.ckpt_dir)
-        if ckpt and ckpt.model_checkpoint_path:
-            print "Loading old model from:", ckpt.model_checkpoint_path
-            saver.restore(sess, ckpt.model_checkpoint_path) # restore all variables
+        # Load old model or create new one
+        model = create_model(sess, FLAGS)
 
         # Train results
         for epoch_num, epoch in enumerate(generate_epoch(train_X, train_y,

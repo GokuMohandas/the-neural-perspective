@@ -7,6 +7,10 @@ from tensorflow.examples.tutorials.mnist import (
     input_data,
 )
 
+from tensorflow.contrib.layers import (
+    batch_norm
+)
+
 data = input_data.read_data_sets('MNIST_data', one_hot=True)
 
 class parameters():
