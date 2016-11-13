@@ -14,50 +14,18 @@ class parameters():
     def __init__(self):
 
         # True data distribution
-        self.mu = 0.
-        self.sigma = 1.
-
-        self.num_hidden_units = 10
+        self.mu = 0
+        self.sigma = 1
 
         self.num_epochs = 10000
         self.num_points = 1000
         self.batch_size = 200
+        self.x_dimensions = 1
+        self.y_dimensions = 1
+        self.num_hidden_units = 10
 
         self.ckpt_dir = "checkpoints"
 
-def linear(input_, output_size, scope=None, mean=0., stddev=1.0,
-    bias_start=0.0, with_W=False):
-    """
-    Ops function that represents an FC layer operation.
-    with_W will return outputs along with W and b
-    """
-
-    # Get input shape
-    shape = input_.get_shape().as_list()
-
-    with tf.variable_scope(scope or "linear"):
-        W = tf.get_variable("W", [shape[1], output_size], tf.float32,
-            tf.random_normal_initializer(mean=mean, stddev=stddev))
-        b = tf.get_variable("b", [output_size],
-            initializer=tf.constant_initializer(bias_start))
-        if with_W:
-            return tf.matmul(input_, W) + b, W, b
-        else:
-            return tf.matmul(input_, W) + b
-
-
-def mlp(inputs):
-
-    """
-    Pass the inputs through an MLP.
-    D is an MLP that gives us P(inputs) is from training data.
-    G is an MLP that converts z to X'.
-    """
-
-    fc1 = tf.nn.tanh(linear(inputs, FLAGS.num_hidden_units, scope='fc1'))
-    fc2 = tf.nn.tanh(linear(fc1, FLAGS.num_hidden_units, scope='fc2'))
-    fc3 = tf.nn.tanh(linear(fc2, 1, scope='fc3'))
-    return fc3
 
 def momentum_optimizer(num_epochs, loss, var_list):
 
@@ -77,6 +45,53 @@ def momentum_optimizer(num_epochs, loss, var_list):
     #optimizer = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(loss)
     return optimizer
 
+def linear(inputs, output_dim, scope=None, stddev=1.0):
+    """
+    We will be using a lot of weights so let's make a function for
+    it and the matmul operation.
+    """
+    with tf.variable_scope(scope or 'linear'):
+        W = tf.get_variable("W",
+                shape=[inputs.get_shape()[1], output_dim],
+                initializer=tf.random_normal_initializer(stddev=stddev))
+        b = tf.get_variable("b",
+                shape=[output_dim],
+                initializer=tf.constant_initializer(0.0))
+    return tf.matmul(inputs, W) + b
+
+def discriminator(inputs, weights_dim, use_minibatch):
+    """
+    """
+    h0 = tf.tanh(linear(inputs, weights_dim * 2, 'd0'))
+    h1 = tf.tanh(linear(h0, weights_dim * 2, 'd1'))
+
+    # without the minibatch layer, the discriminator needs an additional layer
+    # to have enough capacity to separate the two distributions correctly
+    if use_minibatch:
+        h2 = minibatch(h1)
+    else:
+        h2 = tf.tanh(linear(h1, weights_dim * 2, scope='d2'))
+
+    h3 = tf.tanh(linear(h2, 1, scope='d3'))
+    return h3, h2
+
+def generator(inputs, weights_dim):
+    h0 = tf.nn.softplus(linear(inputs, weights_dim, 'g0'))
+    h1 = linear(h0, 1, 'g1')
+    return h1
+
+# https://github.com/AYLIEN/gan-intro/blob/master/gan.py
+def minibatch(inputs, num_kernels=5, kernel_dim=3):
+    x = linear(inputs, num_kernels * kernel_dim, scope='minibatch', stddev=0.02)
+    activation = tf.reshape(x, (-1, num_kernels, kernel_dim))
+    diffs = tf.expand_dims(activation, 3) - tf.expand_dims(
+        tf.transpose(activation, [1, 2, 0]), 0)
+    eps = tf.expand_dims(np.eye(int(inputs.get_shape()[0]), dtype=np.float32), 1)
+    abs_diffs = tf.reduce_sum(tf.abs(diffs), 2) + eps
+    minibatch_features = tf.reduce_sum(tf.exp(-abs_diffs), 2)
+    return tf.concat(1, [inputs, minibatch_features])
+
+
 class pretrain_D_model(object):
 
     def __init__(self, FLAGS):
@@ -85,25 +100,27 @@ class pretrain_D_model(object):
             self.pretrained_inputs = tf.placeholder(tf.float32,
                 shape=[FLAGS.batch_size, 1], name="pretrain_inputs")
             self.pretrain_labels = tf.placeholder(tf.float32,
-                shape=[FLAGS.batch_size, 1], name="pretrain_labels")
-            self.D = mlp(self.pretrained_inputs)
+                shape=[None, None], name="pretrain_labels")
+            self.D, _ = discriminator(self.pretrained_inputs,
+                                     FLAGS.num_hidden_units,
+                                     use_minibatch=True)
             self.pretrain_loss = tf.reduce_mean(tf.square(
                 self.D-self.pretrain_labels))
 
-            vars_ = tf.trainable_variables()
-            self.theta_D_pretrain = [
-                v for v in vars_ if v.name.startswith('D_pretrain/')]
+        vars_ = tf.trainable_variables()
+        self.theta_D_pretrain = [
+            v for v in vars_ if v.name.startswith('D_pretrain/')]
 
-            self.optimizer_d = momentum_optimizer(FLAGS.num_epochs,
-                                            self.pretrain_loss,
-                                            None)
-
+        self.optimizer_d = momentum_optimizer(FLAGS.num_epochs,
+                                        self.pretrain_loss,
+                                        None)
 
     def step_pretrain_D(self, sess, batch_X, batch_y):
 
         input_feed = {self.pretrained_inputs: batch_X,
                       self.pretrain_labels: batch_y}
-        output_feed = [self.D, self.theta_D_pretrain, self.pretrain_loss, self.optimizer_d]
+        output_feed = [self.D, self.theta_D_pretrain,
+                       self.pretrain_loss, self.optimizer_d]
 
         outputs = sess.run(output_feed, input_feed)
         return outputs[0], outputs[1], outputs[2], outputs[3]
@@ -124,7 +141,8 @@ class GAN_model(object):
         with tf.variable_scope("G"):
             self.z = tf.placeholder(tf.float32,
                 shape=[FLAGS.batch_size, 1], name='z')
-            G = mlp(self.z)
+            G = generator(self.z,
+                            FLAGS.num_hidden_units)
 
             # We need to scale our X' to match X's scale
             # So G doesn't have to learn the scaling too
@@ -135,14 +153,18 @@ class GAN_model(object):
             # Feed X into D
             self.X = tf.placeholder(tf.float32,
                 shape=[FLAGS.batch_size, 1], name="X")
-            D_X = mlp(self.X)
+            D_X, self.fc_D = discriminator(self.X,
+                                 FLAGS.num_hidden_units,
+                                 use_minibatch=True)
             # Scale the prediction
             self.D_X = tf.maximum(tf.minimum(D_X, 0.99), 0.01)
 
             scope.reuse_variables()
 
             # Feed X' into D
-            D_X_prime = mlp(self.G)
+            D_X_prime, self.fc_G = discriminator(self.G,
+                                             FLAGS.num_hidden_units,
+                                             use_minibatch=True)
             # Scale the prediction
             self.D_X_prime = tf.maximum(tf.minimum(D_X_prime, 0.99), 0.01)
 
@@ -171,8 +193,8 @@ class GAN_model(object):
         outputs = sess.run(output_feed, input_feed)
         return outputs[0], outputs[1]
 
-    def step_G(self, sess, batch_z):
-        input_feed = {self.z: batch_z}
+    def step_G(self, sess, batch_z, batch_X):
+        input_feed = {self.z: batch_z, self.X: batch_X}
         output_feed = [self.objective_G,
                        self.optimizer_G]
 
@@ -269,7 +291,7 @@ def train(FLAGS):
         # Plot the untrained D
         plot_data_and_D(sess, pretrain_D, FLAGS)
 
-        # Let's train the discriminator D
+        # Let's pretrain the discriminator D
         losses = np.zeros(FLAGS.num_points)
         for i in xrange(FLAGS.num_points):
             batch_X = (np.random.uniform(int(FLAGS.mu-3.0*FLAGS.sigma),
@@ -299,7 +321,7 @@ def train(FLAGS):
         # Let's train the GAN
         k=1
         objective_Ds = np.zeros(FLAGS.num_epochs)
-        objective_Gs = np.zeros(FLAGS.num_epochs)
+        optimizer_Gs = np.zeros(FLAGS.num_epochs)
         for i in xrange(FLAGS.num_epochs):
 
             if i%1000 == 0:
@@ -335,11 +357,14 @@ def train(FLAGS):
                                     FLAGS.batch_size) + \
                                     np.random.random(FLAGS.batch_size)*0.01
             batch_z = np.reshape(batch_z, (FLAGS.batch_size, 1))
-            objective_Gs[i], _ = GAN.step_G(sess, batch_z)
+            optimizer_Gs[i], _ = GAN.step_G(sess, batch_z, batch_X)
+
+            #if i%100 == 0:
+            #    plot_G(sess, GAN, FLAGS, save=True, num_epoch=i)
 
         # Plot objectives
         plt.plot(xrange(FLAGS.num_epochs), objective_Ds, label="objective_D")
-        plt.plot(xrange(FLAGS.num_epochs), 1-objective_Gs, label="objective_G")
+        plt.plot(xrange(FLAGS.num_epochs), 1-optimizer_Gs, label="optimizer_G")
 
         plt.legend()
         plt.show()
@@ -353,20 +378,6 @@ if __name__ == '__main__':
 
     FLAGS = parameters()
     train(FLAGS)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
