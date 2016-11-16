@@ -100,7 +100,6 @@ def train(FLAGS):
 
         sess.run(tf.initialize_all_variables())
 
-
         accs = []
         BN_accs = []
         losses = []

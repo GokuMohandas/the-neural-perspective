@@ -14,19 +14,39 @@ class parameters():
     def __init__(self):
 
         # True data distribution
-        self.mu = 0
-        self.sigma = 1
+        self.mu = 0.
+        self.sigma = 1.
+
+        self.num_hidden_units = 10
 
         self.num_epochs = 10000
         self.num_points = 1000
         self.batch_size = 200
-        self.x_dimensions = 1
-        self.y_dimensions = 1
 
         self.ckpt_dir = "checkpoints"
 
+def linear(input_, output_size, scope=None, mean=0., stddev=1.0,
+    bias_start=0.0, with_W=False):
+    """
+    Ops function that represents an FC layer operation.
+    with_W will return outputs along with W and b
+    """
 
-def mlp(inputs, input_dim, output_dim):
+    # Get input shape
+    shape = input_.get_shape().as_list()
+
+    with tf.variable_scope(scope or "linear"):
+        W = tf.get_variable("W", [shape[1], output_size], tf.float32,
+            tf.random_normal_initializer(mean=mean, stddev=stddev))
+        b = tf.get_variable("b", [output_size],
+            initializer=tf.constant_initializer(bias_start))
+        if with_W:
+            return tf.matmul(input_, W) + b, W, b
+        else:
+            return tf.matmul(input_, W) + b
+
+
+def mlp(inputs):
 
     """
     Pass the inputs through an MLP.
@@ -34,29 +54,10 @@ def mlp(inputs, input_dim, output_dim):
     G is an MLP that converts z to X'.
     """
 
-    W1 = tf.get_variable("W1",
-        shape=[input_dim, 10],
-        initializer=tf.random_normal_initializer())
-    b1 = tf.get_variable("b1",
-        shape=[10],
-        initializer=tf.constant_initializer(0.0))
-    W2 = tf.get_variable("W2",
-        shape=[10, 10],
-        initializer=tf.random_normal_initializer())
-    b2 = tf.get_variable("b2",
-        shape=[10],
-        initializer=tf.constant_initializer(0.0))
-    W3 = tf.get_variable("W3",
-        shape=[10, output_dim],
-        initializer=tf.random_normal_initializer())
-    b3 = tf.get_variable("b3",
-        shape=[output_dim],
-        initializer=tf.constant_initializer(0.0))
-
-    fc1 = tf.nn.tanh(tf.matmul(inputs, W1) + b1)
-    fc2 = tf.nn.tanh(tf.matmul(fc1, W2) + b2)
-    fc3 = tf.nn.tanh(tf.matmul(fc2, W3) + b3)
-    return fc3, [W1, b1, W2, b2, W3, b3], fc2
+    fc1 = tf.nn.tanh(linear(inputs, FLAGS.num_hidden_units, scope='fc1'))
+    fc2 = tf.nn.tanh(linear(fc1, FLAGS.num_hidden_units, scope='fc2'))
+    fc3 = tf.nn.tanh(linear(fc2, 1, scope='fc3'))
+    return fc3, fc2
 
 def momentum_optimizer(num_epochs, loss, var_list):
 
@@ -82,23 +83,27 @@ class pretrain_D_model(object):
         # Pretrain D
         with tf.variable_scope("D_pretrain"):
             self.pretrained_inputs = tf.placeholder(tf.float32,
-                shape=[None, None], name="pretrain_inputs")
+                shape=[FLAGS.batch_size, 1], name="pretrain_inputs")
             self.pretrain_labels = tf.placeholder(tf.float32,
-                shape=[None, None], name="pretrain_labels")
-            self.D, self.theta_d, _ = mlp(self.pretrained_inputs,
-                             FLAGS.x_dimensions,
-                             FLAGS.y_dimensions)
+                shape=[FLAGS.batch_size, 1], name="pretrain_labels")
+            self.D, _ = mlp(self.pretrained_inputs)
             self.pretrain_loss = tf.reduce_mean(tf.square(
                 self.D-self.pretrain_labels))
+
+            vars_ = tf.trainable_variables()
+            self.theta_D_pretrain = [
+                v for v in vars_ if v.name.startswith('D_pretrain/')]
+
             self.optimizer_d = momentum_optimizer(FLAGS.num_epochs,
                                             self.pretrain_loss,
                                             None)
+
 
     def step_pretrain_D(self, sess, batch_X, batch_y):
 
         input_feed = {self.pretrained_inputs: batch_X,
                       self.pretrain_labels: batch_y}
-        output_feed = [self.D, self.theta_d, self.pretrain_loss, self.optimizer_d]
+        output_feed = [self.D, self.theta_D_pretrain, self.pretrain_loss, self.optimizer_d]
 
         outputs = sess.run(output_feed, input_feed)
         return outputs[0], outputs[1], outputs[2], outputs[3]
@@ -118,10 +123,8 @@ class GAN_model(object):
 
         with tf.variable_scope("G"):
             self.z = tf.placeholder(tf.float32,
-                shape=[None, None], name='z')
-            G, self.theta_G, _  = mlp(self.z,
-                                    FLAGS.x_dimensions,
-                                    FLAGS.x_dimensions)
+                shape=[FLAGS.batch_size, 1], name='z')
+            G, _ = mlp(self.z)
 
             # We need to scale our X' to match X's scale
             # So G doesn't have to learn the scaling too
@@ -131,26 +134,27 @@ class GAN_model(object):
         with tf.variable_scope("D") as scope:
             # Feed X into D
             self.X = tf.placeholder(tf.float32,
-                shape=[None, None], name="X")
-            D_X, self.theta_D, self.fc_D = mlp(self.X,
-                                 FLAGS.x_dimensions,
-                                 FLAGS.y_dimensions)
+                shape=[FLAGS.batch_size, 1], name="X")
+            D_X, self.fc2_D_X = mlp(self.X)
             # Scale the prediction
             self.D_X = tf.maximum(tf.minimum(D_X, 0.99), 0.01)
 
             scope.reuse_variables()
 
             # Feed X' into D
-            D_X_prime, self.theta_D, self.fc_G = mlp(self.G,
-                                             FLAGS.x_dimensions,
-                                             FLAGS.y_dimensions)
+            D_X_prime, self.fc2_D_X_prime = mlp(self.G)
             # Scale the prediction
             self.D_X_prime = tf.maximum(tf.minimum(D_X_prime, 0.99), 0.01)
+
+        vars_ = tf.trainable_variables()
+        self.theta_G = [v for v in vars_ if v.name.startswith('G/')]
+        self.theta_D = [v for v in vars_ if v.name.startswith('D/')]
 
         # Objective functions
         self.objective_D = tf.reduce_mean(tf.log(self.D_X) + \
                            tf.log(1-self.D_X_prime))
-        self.cost_G = tf.sqrt(tf.reduce_sum(tf.pow(self.fc_D-self.fc_G, 2)))
+        self.cost_G = tf.sqrt(tf.reduce_sum(tf.pow(
+            self.fc2_D_X-self.fc2_D_X_prime, 2)))
 
         # Train optimizers
         self.optimizer_D = momentum_optimizer(FLAGS.num_epochs,
@@ -195,7 +199,7 @@ def plot_data_and_D(sess, model, FLAGS):
         untrained_D[FLAGS.batch_size*i:FLAGS.batch_size*(i+1)] = \
             sess.run(model.D,
                 feed_dict={model.pretrained_inputs: batch_X})
-    ax.plot(X, untrained_D, label='untrained_D')
+    ax.plot(X, untrained_D, label='D')
 
     plt.legend()
     plt.show()
@@ -241,7 +245,7 @@ def plot_G(sess, GAN, FLAGS, save=False, num_epoch=None):
     hist_G, edges = np.histogram(G, bins=10)
     ax.plot(np.linspace(int(FLAGS.mu-3.0*FLAGS.sigma),
                     int(FLAGS.mu+3.0*FLAGS.sigma), 10),
-        hist_G/float(FLAGS.num_points), label='untrained_G')
+        hist_G/float(FLAGS.num_points), label='G')
 
     if not save:
         plt.legend()
@@ -332,16 +336,6 @@ def train(FLAGS):
             batch_z = np.reshape(batch_z, (FLAGS.batch_size, 1))
             cost_Gs[i], _ = GAN.step_G(sess, batch_z, batch_X)
 
-            #if i%100 == 0:
-            #    plot_G(sess, GAN, FLAGS, save=True, num_epoch=i)
-
-        # Plot objectives
-        plt.plot(xrange(FLAGS.num_epochs), objective_Ds, label="objective_D")
-        plt.plot(xrange(FLAGS.num_epochs), 1-cost_Gs, label="cost_G")
-
-        plt.legend()
-        plt.show()
-
         # Plot trained G
         plot_G(sess, GAN, FLAGS)
 
@@ -351,6 +345,20 @@ if __name__ == '__main__':
 
     FLAGS = parameters()
     train(FLAGS)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
