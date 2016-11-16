@@ -173,8 +173,10 @@ def train(FLAGS, data, idx_to_word):
 
                 for word_num in range(FLAGS.VALID_LEN):
                     word = idx_to_word[valid_examples[word_num]]
-                    nearest_words = (-similarity[word_num, :]).argsort()[1:FLAGS.TOP_K+1] # 1 bc most similar will be word itself
-                    print "Close to", word, ":", [idx_to_word[word_idx] for word_idx in nearest_words[:FLAGS.TOP_K]]
+                    nearest_words = (-similarity[word_num, :]).argsort()\
+                        [1:FLAGS.TOP_K+1] # 1 bc most similar will be word itself
+                    print "Close to", word, ":", [idx_to_word[word_idx]
+                        for word_idx in nearest_words[:FLAGS.TOP_K]]
 
 
 
