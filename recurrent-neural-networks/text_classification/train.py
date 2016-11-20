@@ -99,10 +99,9 @@ def train():
             train_accuracy = []
             for batch_num, (batch_X, batch_y, batch_seq_lens) in enumerate(epoch):
 
-                batch_seq_lens = batch_seq_lens.reshape((-1, 1))
-
-                _, loss, accuracy = model.step(sess, batch_X, batch_y,
-                    dropout=FLAGS.dropout, forward_only=False, sampling=False)
+                _, loss, accuracy = model.step(sess, batch_X, batch_seq_lens,
+                    batch_y, dropout=FLAGS.dropout, forward_only=False,
+                    sampling=False)
 
                 train_loss.append(loss)
                 train_accuracy.append(accuracy)
@@ -124,10 +123,9 @@ def train():
                     (valid_batch_X, valid_batch_y, valid_batch_seq_lens) in \
                         enumerate(valid_epoch):
 
-                    valid_batch_seq_lens = valid_batch_seq_lens.reshape((-1, 1))
                     loss, accuracy = model.step(sess,
-                        valid_batch_X, valid_batch_y, dropout=0.0,
-                        forward_only=True, sampling=False)
+                        valid_batch_X, valid_batch_seq_lens, valid_batch_y,
+                        dropout=0.0, forward_only=True, sampling=False)
 
                     valid_loss.append(loss)
                     valid_accuracy.append(accuracy)
@@ -162,6 +160,7 @@ def sample():
         model = create_model(sess, FLAGS)
 
         probabilities = model.step(sess, batch_X=test_sentence,
+            batch_seq_lens=np.array(seq_len),
             forward_only=True, sampling=True)
 
         for index, prob in enumerate(probabilities[:seq_len[0]]):

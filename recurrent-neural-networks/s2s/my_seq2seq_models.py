@@ -96,7 +96,7 @@ def embedding_attention_seq2seq_with_biRNN_encoder(encoder_inputs,
 
         outputs, state = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell,
             inputs=inputs, initial_state_fw=None, initial_state_bw=None,
-            sequence_length=seq_lens, time_major=True, dtype=tf.float32)
+            sequence_length=seq_lens, time_major=False, dtype=tf.float32)
         outputs_fw, outputs_bw = outputs
         state_fw, state_bw = state
 

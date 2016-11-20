@@ -60,6 +60,8 @@ class model(object):
             shape=[None, None], name='inputs_X')
         self.targets_y = tf.placeholder(tf.float32,
             shape=[None, None], name='targets_y')
+        self.seq_lens = tf.placeholder(tf.int32,
+            shape=[None, ], name='seq_lens')
         self.dropout = tf.placeholder(tf.float32)
 
         # RNN cell
@@ -74,9 +76,8 @@ class model(object):
         #initial_state = stacked_cell.zero_state(FLAGS.batch_size, tf.float32)
 
         # Outputs from RNN
-        seq_lens = length(self.inputs_X)
         all_outputs, state = tf.nn.dynamic_rnn(cell=stacked_cell, inputs=inputs,
-            sequence_length=seq_lens, dtype=tf.float32)
+            sequence_length=self.seq_lens, dtype=tf.float32)
 
         # state has the last RELEVANT output automatically since we fed in seq_len
         # [0] because state is a tuple with a tensor inside it
@@ -123,11 +124,12 @@ class model(object):
         self.global_step = tf.Variable(0, trainable=False)
         self.saver = tf.train.Saver(tf.all_variables())
 
-    def step(self, sess, batch_X, batch_y=None, dropout=0.0,
+    def step(self, sess, batch_X, batch_seq_lens, batch_y=None, dropout=0.0,
         forward_only=True, sampling=False):
 
         input_feed = {self.inputs_X: batch_X,
                       self.targets_y: batch_y,
+                      self.seq_lens: batch_seq_lens,
                       self.dropout: dropout}
 
         if forward_only:
@@ -136,6 +138,7 @@ class model(object):
                                self.accuracy]
             elif sampling:
                 input_feed = {self.inputs_X: batch_X,
+                              self.seq_lens: batch_seq_lens,
                               self.dropout: dropout}
                 output_feed = [self.sampling_probabilities]
         else: # training

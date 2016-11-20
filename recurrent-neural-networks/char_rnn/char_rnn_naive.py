@@ -51,20 +51,20 @@ def generate_epochs(FLAGS):
 
 def rnn_cell(FLAGS, rnn_input, state):
     with tf.variable_scope('rnn_cell', reuse=True):
-        W_input = tf.get_variable('W_input', 
+        W_input = tf.get_variable('W_input',
             [FLAGS.NUM_CLASSES, FLAGS.NUM_HIDDEN_UNITS])
-        W_hidden = tf.get_variable('W_hidden', 
+        W_hidden = tf.get_variable('W_hidden',
             [FLAGS.NUM_HIDDEN_UNITS, FLAGS.NUM_HIDDEN_UNITS])
-        b_hidden = tf.get_variable('b_hidden', [FLAGS.NUM_HIDDEN_UNITS], 
+        b_hidden = tf.get_variable('b_hidden', [FLAGS.NUM_HIDDEN_UNITS],
             initializer=tf.constant_initializer(0.0))
-    return tf.tanh(tf.matmul(rnn_input, W_input) + 
+    return tf.tanh(tf.matmul(rnn_input, W_input) +
                    tf.matmul(state, W_hidden) + b_hidden)
 
 def rnn_logits(FLAGS, rnn_output):
     with tf.variable_scope('softmax', reuse=True):
-        W_softmax = tf.get_variable('W_softmax', 
+        W_softmax = tf.get_variable('W_softmax',
             [FLAGS.NUM_HIDDEN_UNITS, FLAGS.NUM_CLASSES])
-        b_softmax = tf.get_variable('b_softmax', 
+        b_softmax = tf.get_variable('b_softmax',
             [FLAGS.NUM_CLASSES], initializer=tf.constant_initializer(0.0))
     return tf.matmul(rnn_output, W_softmax) + b_softmax
 
@@ -73,9 +73,9 @@ class model(object):
     def __init__(self, FLAGS):
 
         # Placeholders
-        self.X = tf.placeholder(tf.int32, [None, None], 
+        self.X = tf.placeholder(tf.int32, [None, None],
             name='input_placeholder')
-        self.y = tf.placeholder(tf.int32, [None, None], 
+        self.y = tf.placeholder(tf.int32, [None, None],
             name='labels_placeholder')
         self.initial_state = tf.zeros([FLAGS.NUM_BATCHES, FLAGS.NUM_HIDDEN_UNITS])
 
@@ -86,12 +86,12 @@ class model(object):
 
         # Define the RNN cell
         with tf.variable_scope('rnn_cell'):
-            W_input = tf.get_variable('W_input', 
+            W_input = tf.get_variable('W_input',
                 [FLAGS.NUM_CLASSES, FLAGS.NUM_HIDDEN_UNITS])
-            W_hidden = tf.get_variable('W_hidden', 
+            W_hidden = tf.get_variable('W_hidden',
                 [FLAGS.NUM_HIDDEN_UNITS, FLAGS.NUM_HIDDEN_UNITS])
-            b_hidden = tf.get_variable('b_hidden', 
-                [FLAGS.NUM_HIDDEN_UNITS], 
+            b_hidden = tf.get_variable('b_hidden',
+                [FLAGS.NUM_HIDDEN_UNITS],
                 initializer=tf.constant_initializer(0.0))
 
         # Creating the RNN
@@ -104,10 +104,10 @@ class model(object):
 
         # Logits and predictions
         with tf.variable_scope('softmax'):
-            W_softmax = tf.get_variable('W_softmax', 
+            W_softmax = tf.get_variable('W_softmax',
                 [FLAGS.NUM_HIDDEN_UNITS, FLAGS.NUM_CLASSES])
-            b_softmax = tf.get_variable('b_softmax', 
-                [FLAGS.NUM_CLASSES], 
+            b_softmax = tf.get_variable('b_softmax',
+                [FLAGS.NUM_CLASSES],
                 initializer=tf.constant_initializer(0.0))
 
         logits = [rnn_logits(FLAGS, rnn_output) for rnn_output in rnn_outputs]
@@ -124,8 +124,8 @@ class model(object):
 
     def step(self, sess, batch_X, batch_y, initial_state):
 
-        input_feed = {self.X: batch_X, 
-                      self.y:batch_y, 
+        input_feed = {self.X: batch_X,
+                      self.y:batch_y,
                       self.initial_state:initial_state}
         output_feed = [self.predictions,
                        self.total_loss,
@@ -139,7 +139,7 @@ class model(object):
         initial_state = tf.zeros([1,FLAGS.NUM_HIDDEN_UNITS])
         predictions = []
 
-        # Process preset tokens 
+        # Process preset tokens
         state = initial_state
         for char in FLAGS.START_TOKEN:
             idx = FLAGS.char_to_idx[char]
@@ -159,9 +159,9 @@ class model(object):
             logit = rnn_logits(FLAGS, state)
 
             # scale the distribution
-            # for creativity, higher temperatures produce more nonexistent words 
+            # for creativity, higher temperatures produce more nonexistent words
             # BUT more creative samples
-            next_char_dist = logit/FLAGS.TEMPERATURE 
+            next_char_dist = logit/FLAGS.TEMPERATURE
             next_char_dist = tf.exp(next_char_dist)
             next_char_dist /= tf.reduce_sum(next_char_dist)
 
@@ -223,7 +223,7 @@ def train(FLAGS):
 
 if __name__ == '__main__':
     FLAGS = parameters()
-    
+
     data = open(FLAGS.FILE, "r").read()
     chars = list(set(data))
     char_to_idx = {char:i for i, char in enumerate(chars)}
