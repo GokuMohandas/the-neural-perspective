@@ -1,0 +1,21 @@
+Hello, I am a data scientist at apple and I work on deep learning projects.
+I also maintain a blog in my free time with many of my old tutorials.
+My personal research interests include sequence to sequence processing tasks.
+This is a rather wide subfield and is growing ever wider.
+I eventually want to solve the ability to reason with logic so that we can build platforms that can start to make strategic decisions across a wide array of situations.
+I also enjoy playing tennis, cooking, weight lifting.
+My favorite shows include the Big Bang Theory, Modern Family, Shark Tank and Dragon Ball.
+I am originally from New Jersey but currently live in California while my parents live in Georgia.
+I have a little brother who is in middle school and it is somewhat unfortunate that I am not able to be by his side when he is high school.
+Which is arguably some tested times in a teenager’s life.
+I hope this is enough sentences for a little bit a translational accuracy.
+Only time will tell and a decent model will help too.
+I like to eat peanut butter sandwiches, eggs and apple smoothies in the morning
+For lunch I usually eat a very large salad or chicken and rice.
+For dinner I try to eat wild fish with vegetables.
+For late night, I usually eat ice cream and maybe an apple.
+On the weekends, I might cook pasta with salmon or eat outside with friends.
+I also do not take anything artificial like protein supplements and try to eat organic food.
+In fact I do not even own a microwave which can be inconvenient when I want to heat my organic meals.
+I spent quite a bit of time working with adversarial networks but now I am more focused on solving logical reasoning for artificial intelligence.
+We have got a long way to go but I think we can achieve really amazing feats within the next decade.

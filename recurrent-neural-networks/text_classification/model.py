@@ -20,7 +20,8 @@ def rnn_cell(FLAGS, dropout):
         output_keep_prob=1-dropout)
 
     # Each state as one cell
-    stacked_cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * FLAGS.num_layers)
+    stacked_cell = tf.nn.rnn_cell.MultiRNNCell(
+        [single_cell] * FLAGS.num_layers)
 
     return stacked_cell
 
