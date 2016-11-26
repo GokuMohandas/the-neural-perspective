@@ -29,23 +29,6 @@ class agent(object):
         self.chosen_weight = tf.slice(tf.reshape(self.fc1, [-1, ]),
             self.action, [1])
 
-        # Training
-        ''' Our loss for this RL task is a bit unique. We don't have a
-            y_true to compare a y_pred with. Instead we have
-            y_pred = argmax(W) = index. We do not have a y_true which would
-            tell us which index (armed-bandit) to choose. But we do have the
-            associated reward of choosing a certain bandit. Of course this
-            reward changes depending on the environment (random number
-            from normal distribution), but the armed bandit with highest
-            number will yield the postiive reward more often than the rest.
-            So, we can make our loss function -log(W_chosen)*associate_reward.
-            If the reward is positive, the loss will be further lowered (will
-            become more negative), and this will help push our gradients
-            towards selecting this W more often. If the reward is negative,
-            this will increase the loss (since loss is negative), which will
-            cause the gradients to alter the weights so we do not choose this
-            weight as much.
-        '''
         self.loss = -(tf.log(self.chosen_weight) * self.reward)
         self.train_optimizer = tf.train.GradientDescentOptimizer(
             0.001).minimize(self.loss)
@@ -96,7 +79,7 @@ if __name__ == '__main__':
             print state
 
             # Determine the action chosen and associated reward
-            if np.random.rand(1) < 0.05:
+            if np.random.rand(1) < 0.25:
                 action = np.random.randint(0, num_actions)
             else:
                 action = np.argmax(sess.run(model.fc1, feed_dict={
