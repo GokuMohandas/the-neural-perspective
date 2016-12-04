@@ -1,4 +1,5 @@
-data
-checkpoints
-*.p
 *.pyc
+.DS_Store
+data/
+checkpoints/
+*.p

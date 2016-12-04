@@ -243,22 +243,26 @@ def plot_all():
         GRU_LN_results = cPickle.load(f)
 
     # Plotting accuracy
+    fig = plt.figure()
     plt.plot(control_results[1], label='Control accuracy')
     plt.plot(RNN_LN_results[1], label='RNN-LN accuracy')
     plt.plot(RNN_LN_FW_results[1], label='RNN-LN-FW accuracy')
     plt.plot(GRU_LN_results[1], label='GRU-LN accuracy')
     plt.title('Test Accuracy')
     plt.legend(loc=4)
-    plt.show()
+    fig.savefig('accuracy.png')
+    #plt.show()
 
     # Plotting loss
+    fig = plt.figure()
     plt.plot(control_results[3], label='Control loss')
     plt.plot(RNN_LN_results[3], label='RNN-LN loss')
     plt.plot(RNN_LN_FW_results[3], label='RNN-LN-FW loss')
     plt.plot(GRU_LN_results[3], label='GRU-LN loss')
-    plt.title('Test Accuracy')
+    plt.title('Test Loss')
     plt.legend(loc=1)
-    plt.show()
+    fig.savefig('loss.png')
+    #plt.show()
 
 
 if __name__ == '__main__':
