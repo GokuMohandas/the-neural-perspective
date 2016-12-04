@@ -1,0 +1,2 @@
+model_checkpoint_path: "GRU-LN.ckpt-0"
+all_model_checkpoint_paths: "GRU-LN.ckpt-0"

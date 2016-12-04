@@ -1,0 +1,2 @@
+model_checkpoint_path: "RNN-LN.ckpt-0"
+all_model_checkpoint_paths: "RNN-LN.ckpt-0"
