@@ -46,12 +46,20 @@ We do not use this method in our basic implementation because I wanted to explic
 
 Note that this 'efficient implementation' will be costly if our sequence length is greater than the hidden state dimensionality. The computations will scale quadratically now because since we need to attend to all previous hidden states with the current inner loop's hidden representation.
 
+### Requirements
+* tensorflow (>0.10)
+
 ### Execution
 
 - To see the advantage behind the fast weights, Ba et. al. used a very simple toy task.
 
 Given: g1o2k3??g we need to predict 1. 
 - You can think of each letter-number pair as a key/value pair. We are given a key at the end and we need to predict the appropriate value. The fast associative memory is required here in order to keep track of the key/value pairs it has just seen and retrieve the proper value given a key. After backpropagation, the fast memory will give us a hidden state vector, for example after g and 1, with a part for g and another part for 1 and learn to associate the two together.
+
+- Create datasets:
+```bash
+python data_utils.py
+```
 
 - For training:
 ```bash
@@ -69,8 +77,8 @@ python train.py plot
 ### Results
 
 - Control: RNN without layer normalization (LN) or fast weights (FW)
-![results1](fw/loss.png)
-![results2](fw/accuracy.png)
+![results1](images/loss.png)
+![results2](images/accuracy.png)
 
 ### Bag of Tricks
 
